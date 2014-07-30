@@ -355,6 +355,21 @@ class ViewHandler extends ContainerAware implements ConfigurableViewHandlerInter
     {
         $data = $this->prepareTemplateParameters($view);
 
+        $template = $this->prepareTemplate($view, $format);
+
+        return $this->getTemplating()->render($template, $data);
+    }
+
+    /**
+     * Prepare view template for use by templating engine.
+     *
+     * @param View $view
+     * @param $format
+     *
+     * @return null|string|TemplateReference
+     */
+    public function prepareTemplate(View $view, $format)
+    {
         $template = $view->getTemplate();
         if ($template instanceof TemplateReference) {
             if (null === $template->get('format')) {
@@ -367,7 +382,7 @@ class ViewHandler extends ContainerAware implements ConfigurableViewHandlerInter
             }
         }
 
-        return $this->getTemplating()->render($template, $data);
+        return $template;
     }
 
     /**
@@ -415,7 +430,7 @@ class ViewHandler extends ContainerAware implements ConfigurableViewHandlerInter
             return $this->createRedirectResponse($view, $location, $format);
         }
 
-        $response = $this->initResponse($view, $format);
+        $response = $this->initResponse($view, $format, true); //$request->attributes->get('_template_streamable'));
 
         if (!$response->headers->has('Content-Type')) {
             $response->headers->set('Content-Type', $request->getMimeType($format));
@@ -427,35 +442,72 @@ class ViewHandler extends ContainerAware implements ConfigurableViewHandlerInter
     /**
      * Initializes a response object that represents the view and holds the view's status code.
      *
-     * @param View   $view
-     * @param string $format
+     * @param View    $view
+     * @param string  $format
+     * @param bool $responseStreamed
      *
      * @return Response
      */
-    private function initResponse(View $view, $format)
+    private function initResponse(View $view, $format, $responseStreamed = false)
     {
         $content = null;
+
+        $view->setResponseStreamed($responseStreamed);
+
         if ($this->isFormatTemplating($format)) {
-            $content = $this->renderTemplate($view, $format);
-        } elseif ($this->serializeNull || null !== $view->getData()) {
-            $data = $this->getDataFromView($view);
-            $serializer = $this->getSerializer($view);
-            if ($serializer instanceof SerializerInterface) {
-                $context = $this->getSerializationContext($view);
-                $content = $serializer->serialize($data, $format, $context);
+            if(!$view->isResponseStreamed()) {
+                $content = $this->renderTemplate($view, $format);
             } else {
-                $content = $serializer->serialize($data, $format);
+                $templating = $view->getTemplate();
+                $data = $this->prepareTemplateParameters($view);
+                $template = $this->prepareTemplate($view, $format);
+
+                $content = function () use ($templating, $template, $data) {
+                    return $templating->stream($template, $data);
+                };
             }
+        } elseif ($this->serializeNull || null !== $view->getData()) {
+            if(!$view->isResponseStreamed()) {
+                $content = $this->getSerializedContent($view, $format);
+            } else {
+                $that = $this;
+
+                $content = function() use($format, $view, $that) {
+                    $content = $that->getSerializedContent($view, $format);
+
+                    echo $content;
+                };
+            }
+
         }
+
+//        var_dump($view->isResponseStreamed(), get_class($view->getResponse())); exit;
 
         $response = $view->getResponse();
         $response->setStatusCode($this->getStatusCode($view, $content));
 
-        if (null !== $content) {
+        if(is_callable($content)) {
+            $response->setCallback($content);
+        } elseif (null !== $content) {
             $response->setContent($content);
         }
 
         return $response;
+    }
+
+    private function getSerializedContent(View $view, $format)
+    {
+        $data = $this->getDataFromView($view);
+        $serializer = $this->getSerializer($view);
+
+        if ($serializer instanceof SerializerInterface) {
+            $context = $this->getSerializationContext($view);
+            $content = $serializer->serialize($data, $format, $context);
+        } else {
+            $content = $serializer->serialize($data, $format);
+        }
+
+        return $content;
     }
 
     /**

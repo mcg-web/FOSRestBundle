@@ -15,6 +15,7 @@ use FOS\RestBundle\Util\Codes;
 use Symfony\Bundle\FrameworkBundle\Templating\TemplateReference;
 use Symfony\Component\HttpFoundation\Response;
 use JMS\Serializer\SerializationContext;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * Default View implementation.
@@ -42,6 +43,8 @@ class View
      * @var Response
      */
     private $response;
+
+    private $responseStreamed;
 
     /**
      * Convenience method to allow for a fluent interface.
@@ -103,14 +106,16 @@ class View
      * Constructor.
      *
      * @param mixed $data
-     * @param int   $statusCode
+     * @param int $statusCode
      * @param array $headers
+     * @param bool $responseStreamed
      */
-    public function __construct($data = null, $statusCode = null, array $headers = array())
+    public function __construct($data = null, $statusCode = null, array $headers = array(), $responseStreamed = false)
     {
         $this->setData($data);
         $this->setStatusCode($statusCode ?: 200);
         $this->setTemplateVar('data');
+        $this->setResponseStreamed($responseStreamed);
 
         if (!empty($headers)) {
             $this->getResponse()->headers->replace($headers);
@@ -308,6 +313,19 @@ class View
     }
 
     /**
+     * set if the response should be streamed or not
+     *
+     * @param bool $responseStreamed
+     * @return View
+     */
+    public function setResponseStreamed($responseStreamed)
+    {
+        $this->responseStreamed = (bool) $responseStreamed;
+
+        return $this;
+    }
+
+    /**
      * Gets the data.
      *
      * @return mixed|null
@@ -408,14 +426,20 @@ class View
     }
 
     /**
-     * Gets the response.
+     * get the response
      *
-     * @return Response
+     * @return Response|StreamedResponse response
      */
     public function getResponse()
     {
         if (null === $this->response) {
-            $this->response = new Response();
+            $this->response = new StreamedResponse();
+//            var_dump($this->isResponseStreamed());
+//            if($this->isResponseStreamed()) {
+//                $this->response = new StreamedResponse();
+//            } else {
+//                $this->response = new Response();
+//            }
         }
 
         return $this->response;
@@ -433,5 +457,15 @@ class View
         }
 
         return $this->serializationContext;
+    }
+
+    /**
+     * Is the response streamed?
+     *
+     * @return bool
+     */
+    public function isResponseStreamed()
+    {
+        return $this->responseStreamed;
     }
 }

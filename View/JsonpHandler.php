@@ -12,6 +12,7 @@
 namespace FOS\RestBundle\View;
 
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 
@@ -56,8 +57,17 @@ class JsonpHandler
         $response = $handler->createResponse($view, $request, 'json');
 
         if ($response->isSuccessful()) {
-            $callback = $this->getCallback($request);
-            $response->setContent(sprintf('/**/%s(%s)', $callback, $response->getContent()));
+            $that = $this;
+            $callback = function() use($that, $request, $response) {
+                return sprintf('/**/%s(%s)', $that->getCallback($request), $response->getContent());
+            };
+            if($response instanceof StreamedResponse) {
+                $response->setCallback($callback);
+            } else {
+                $response->setContent($callback());
+            }
+
+
             $response->headers->set('Content-Type', $request->getMimeType($format));
         }
 
